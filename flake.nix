@@ -83,6 +83,8 @@
           wantedBy = [ "multi-user.target" ];
           serviceConfig = {
             Type = "simple";
+            Restart = "always";
+            RestartSec = "3";
             ExecStart = "${wol-mqttBin}/bin/wol-mqtt" + (if builtins.isString cfg.username then " --username=${escapeShellArg cfg.username}" else "") + (if builtins.isString cfg.passwordFile then " --password-file=${escapeShellArg cfg.passwordFile}" else "") + " " + configFile;
           };
         };
