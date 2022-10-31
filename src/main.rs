@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt,
     net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4},
     num::NonZeroU16,
     os::unix::prelude::{FromRawFd, IntoRawFd},
@@ -19,7 +20,7 @@ use futures::{
 };
 use mqtt::{Client, ClientSessionState, ConnectionSettings, QoSLevel};
 use pnet::packet::icmp::{echo_request::MutableEchoRequestPacket, IcmpType};
-use serde::Deserialize;
+use serde::{de::Visitor, Deserialize};
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::{
     net::UdpSocket,
@@ -88,6 +89,13 @@ async fn main() -> Result<()> {
     );
     pin_mut!(checker);
 
+    let udp_socket = UdpSocket::bind(("0.0.0.0", 0))
+        .await
+        .context("failed to bind udp socket")?;
+    udp_socket
+        .set_broadcast(true)
+        .context("failed to set udp socket to broadcast")?;
+
     loop {
         let res = {
             let checker_next_future = checker.next();
@@ -119,7 +127,24 @@ async fn main() -> Result<()> {
                     )
                     .await?;
             }
-            Either::Right(_) => todo!(),
+            Either::Right(res) => {
+                let (topic, _) = res?;
+
+                for (_, dev) in config.devices.iter().filter(|(name, _)| {
+                    let device_topic = format!("{}/command/{}", config.topic_base, name);
+                    topic == device_topic
+                }) {
+                    let mut buf: [u8; 102] = [0xff; 102];
+                    buf[6..].chunks_mut(6).for_each(|chunk| {
+                        chunk.copy_from_slice(&dev.hw_address.0);
+                    });
+
+                    udp_socket
+                        .send_to(&buf, ("255.255.255.255", 9))
+                        .await
+                        .context("failed to send wake packet")?;
+                }
+            }
         }
     }
 }
@@ -150,6 +175,104 @@ struct Config {
 #[serde(deny_unknown_fields)]
 struct Device {
     ip: Ipv4Addr,
+    hw_address: HwAddress,
+}
+
+struct HwAddress([u8; 6]);
+
+impl<'de> Deserialize<'de> for HwAddress {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct HwAddressVisitor;
+
+        impl<'de> Visitor<'de> for HwAddressVisitor {
+            type Value = HwAddress;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                write!(formatter, "a mac address (string)")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                let (first, rest) = v.split_once(':').ok_or_else(|| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Str(v),
+                        &"six separated hex numbers",
+                    )
+                })?;
+                let (second, rest) = rest.split_once(':').ok_or_else(|| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Str(v),
+                        &"six separated hex numbers",
+                    )
+                })?;
+                let (third, rest) = rest.split_once(':').ok_or_else(|| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Str(v),
+                        &"six separated hex numbers",
+                    )
+                })?;
+                let (fourth, rest) = rest.split_once(':').ok_or_else(|| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Str(v),
+                        &"six separated hex numbers",
+                    )
+                })?;
+                let (fifth, sixth) = rest.split_once(':').ok_or_else(|| {
+                    let err = serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Str(v),
+                        &"six separated hex numbers",
+                    );
+                    err
+                })?;
+
+                let first = u8::from_str_radix(first, 16).map_err(|_| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Str(first),
+                        &"one or two digit hex number",
+                    )
+                })?;
+                let second = u8::from_str_radix(second, 16).map_err(|_| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Str(second),
+                        &"one or two digit hex number",
+                    )
+                })?;
+                let third = u8::from_str_radix(third, 16).map_err(|_| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Str(third),
+                        &"one or two digit hex number",
+                    )
+                })?;
+                let fourth = u8::from_str_radix(fourth, 16).map_err(|_| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Str(fourth),
+                        &"one or two digit hex number",
+                    )
+                })?;
+                let fifth = u8::from_str_radix(fifth, 16).map_err(|_| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Str(fifth),
+                        &"one or two digit hex number",
+                    )
+                })?;
+                let sixth = u8::from_str_radix(sixth, 16).map_err(|_| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Str(sixth),
+                        &"one or two digit hex number",
+                    )
+                })?;
+
+                Ok(HwAddress([first, second, third, fourth, fifth, sixth]))
+            }
+        }
+
+        deserializer.deserialize_str(HwAddressVisitor)
+    }
 }
 
 fn default_port() -> u16 {

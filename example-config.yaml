@@ -5,3 +5,4 @@ timeout: 3
 devices:
   phone:
     ip: 192.168.13.6
+    hw_address: 9E:E4:9B:D1:3E:54

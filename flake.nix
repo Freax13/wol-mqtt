@@ -56,6 +56,9 @@
               ip = mkOption {
                 type = types.str;
               };
+              hwAddress = mkOption {
+                type = types.str;
+              };
             };
           }]);
         };
@@ -70,6 +73,7 @@
             timeout = cfg.timeout;
             devices = mapAttrs (name: dev: {
               ip = dev.ip;
+              hw_address = dev.hwAddress;
             }) cfg.devices;
           };
           configFile = pkgs.writeTextFile {
