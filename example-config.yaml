@@ -1,8 +1,12 @@
-broker_ip: 192.168.13.7
-topic_base: wol-mqtt
-send_interval: 2
-timeout: 3
+broker_ip: 192.168.13.7 # IP Address of an MQTT Broker
+# broker_port: 1883 # Not required, defaults to 1883
+topic_base: wol-mqtt # MQTT base topic
+send_interval: 2 # Interval at which pings are sent out
+timeout: 3 # Timeout after which devices will be put into the DOWN state if they don't respond to pings.
 devices:
   phone:
     ip: 192.168.13.6
     hw_address: 9E:E4:9B:D1:3E:54
+  desktop:
+    ip: 192.168.13.4
+    hw_address: 12:34:56:78:90:AB
